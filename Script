@@ -1,140 +1,162 @@
 --[[
-    BE WORM OR GUARD | ELITE MULTI-TOOL
-    Created for: Optimized Gameplay & Visual Clarity
-    Features: Smooth Aimbot, FOV Control, Role-Based ESP (Worm/Guard/Special Force)
+    BE WORM OR GUARD | ALL-IN-ONE HYBRID HUB
+    Updated: Added NPC/Bot Targeting & Global Workspace Scanning
 ]]
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- // 1. INITIALIZATION & VARIABLES
+-- // 1. GLOBAL SETTINGS
 local Window = Rayfield:CreateWindow({
-   Name = "Zen Hub| V1 Be Worm Or Guard",
-   LoadingTitle = "Syncing Role Data...",
-   ConfigurationSaving = { Enabled = true, FolderName = "BWOG_Elite" }
+   Name = "Zen Hub | Be Worm Or Guard",
+   LoadingTitle = "Scanning Entities...",
+   ConfigurationSaving = { Enabled = true, FolderName = "BWOG_Final" }
 })
 
--- State Variables
 local AimbotEnabled, FOVVisible = false, true
-local MaxDistance, FOVRadius = 100, 100
+local MaxDistance, FOVRadius = 500, 100
 local AimPart = "Head"
-local FOVColor = Color3.fromRGB(255, 255, 255)
-
--- ESP States & Colors
+local TargetBots = true -- New: Includes NPCs
 local ESPEnabled = false
 local ShowWorm, ShowGuard, ShowSF = true, true, true
-local Colors = {
-    Worm = Color3.fromRGB(255, 50, 50),     -- Vibrant Red
-    Guard = Color3.fromRGB(50, 150, 255),   -- Security Blue
-    SF = Color3.fromRGB(255, 215, 0)        -- Special Force Gold
-}
 
 -- // 2. UI TABS
 local CombatTab = Window:CreateTab("Combat", 4483362458)
 local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 
--- // 3. COMBAT SECTION (AIMBOT & FOV)
-CombatTab:CreateSection("Aimbot Configuration")
-
+-- // 3. COMBAT CONFIG
 CombatTab:CreateToggle({
-   Name = "Active Aimbot",
+   Name = "Master Aimbot",
    CurrentValue = false,
    Callback = function(Value) AimbotEnabled = Value end,
 })
 
-CombatTab:CreateSlider({
-   Name = "Lock-on Range",
-   Range = {10, 1000},
-   Increment = 10,
-   CurrentValue = 150,
-   Callback = function(Value) MaxDistance = Value end,
-})
-
-CombatTab:CreateSection("FOV Visualization")
-
 CombatTab:CreateToggle({
-   Name = "Show FOV Circle",
+   Name = "Include Bots/NPCs",
    CurrentValue = true,
-   Callback = function(Value) FOVVisible = Value end,
+   Callback = function(Value) TargetBots = Value end,
 })
 
-CombatTab:CreateColorPicker({
-    Name = "FOV Ring Color",
-    TargetColor = FOVColor,
-    Callback = function(Color) FOVColor = Color end,
+CombatTab:CreateSlider({
+   Name = "FOV Radius",
+   Range = {30, 500},
+   Increment = 5,
+   CurrentValue = 100,
+   Callback = function(Value) FOVRadius = Value end,
 })
 
--- // 4. VISUALS SECTION (ROLE-BASED ESP)
-VisualsTab:CreateSection("Master Controls")
-
+-- // 4. VISUALS CONFIG
 VisualsTab:CreateToggle({
-   Name = "Enable Player ESP",
+   Name = "Master ESP",
    CurrentValue = false,
    Callback = function(Value) ESPEnabled = Value end,
 })
 
-VisualsTab:CreateSection("Role Filters")
+VisualsTab:CreateSection("Filters")
+VisualsTab:CreateToggle({ Name = "Show Worms", CurrentValue = true, Callback = function(V) ShowWorm = V end })
+VisualsTab:CreateToggle({ Name = "Show Guards", CurrentValue = true, Callback = function(V) ShowGuard = V end })
+VisualsTab:CreateToggle({ Name = "Show Special Forces", CurrentValue = true, Callback = function(V) ShowSF = V end })
 
-VisualsTab:CreateToggle({ Name = "Track Worms", CurrentValue = true, Callback = function(V) ShowWorm = V end })
-VisualsTab:CreateToggle({ Name = "Track Guards", CurrentValue = true, Callback = function(V) ShowGuard = V end })
-VisualsTab:CreateToggle({ Name = "Track Special Forces", CurrentValue = true, Callback = function(V) ShowSF = V end })
+-- // 5. THE HYBRID ENGINE (Bots + Players)
 
--- // 5. THE ENGINES (LOGIC)
-
--- Drawing FOV Circle
 local Circle = Drawing.new("Circle")
-Circle.Thickness = 1
+Circle.Thickness = 2
 Circle.NumSides = 64
+Circle.Filled = false
 
--- Main Loop (Aimbot + FOV + ESP Updates)
-game:GetService("RunService").RenderStepped:Connect(function()
-    local MouseLoc = game:GetService("UserInputService"):GetMouseLocation()
+-- Function to check if a model is a Bot/NPC
+local function IsValidBot(model)
+    if not TargetBots then return false end
+    if model:FindFirstChild("Humanoid") and model:FindFirstChild(AimPart) then
+        -- Check if it's NOT a player
+        if not game.Players:GetPlayerFromCharacter(model) then
+            local name = model.Name:lower()
+            return name:find("worm") or name:find("guard") or name:find("special")
+        end
+    end
+    return false
+end
+
+-- Helper to find the best target (Player or Bot)
+local function GetBestTarget()
+    local Target = nil
+    local ShortestDistance = math.huge
+    local MousePos = game:GetService("UserInputService"):GetMouseLocation()
     
-    -- Update Circle
-    Circle.Visible = FOVVisible
-    Circle.Radius = FOVRadius
-    Circle.Position = MouseLoc
-    Circle.Color = FOVColor
+    -- List of all potential targets
+    local PotentialTargets = {}
+    
+    -- Add Players
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= game.Players.LocalPlayer and p.Character then
+            table.insert(PotentialTargets, p.Character)
+        end
+    end
+    
+    -- Add Bots from Workspace
+    if TargetBots then
+        for _, obj in pairs(game.Workspace:GetChildren()) do
+            if IsValidBot(obj) then
+                table.insert(PotentialTargets, obj)
+            end
+        end
+    end
 
-    if AimbotEnabled then
-        local Target = nil
-        local MinDist = math.huge
-
-        for _, p in pairs(game.Players:GetPlayers()) do
-            if p ~= game.Players.LocalPlayer and p.Character and p.Character:FindFirstChild(AimPart) then
-                local Pos, OnScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(p.Character[AimPart].Position)
-                local WorldDist = (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
+    -- Pick the one closest to the mouse
+    for _, char in pairs(PotentialTargets) do
+        local part = char:FindFirstChild(AimPart)
+        if part then
+            local Pos, OnScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(part.Position)
+            if OnScreen then
+                local MouseDist = (Vector2.new(Pos.X, Pos.Y) - MousePos).Magnitude
+                local WorldDist = (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - part.Position).Magnitude
                 
-                if OnScreen and WorldDist <= MaxDistance then
-                    local MouseDist = (Vector2.new(Pos.X, Pos.Y) - MouseLoc).Magnitude
-                    if MouseDist <= FOVRadius and MouseDist < MinDist then
-                        MinDist = MouseDist
-                        Target = p.Character[AimPart]
+                if MouseDist < FOVRadius and WorldDist < MaxDistance then
+                    if MouseDist < ShortestDistance then
+                        ShortestDistance = MouseDist
+                        Target = part
                     end
                 end
             end
         end
+    end
+    return Target
+end
 
+-- MAIN RUNTIME
+game:GetService("RunService").RenderStepped:Connect(function()
+    Circle.Visible = FOVVisible
+    Circle.Radius = FOVRadius
+    Circle.Position = game:GetService("UserInputService"):GetMouseLocation()
+    Circle.Color = Color3.fromRGB(255, 255, 255)
+
+    if AimbotEnabled then
+        local Target = GetBestTarget()
         if Target then
             game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, Target.Position)
         end
     end
 
-    -- ESP Refresh Logic
-    for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= game.Players.LocalPlayer and p.Character then
-            local highlight = p.Character:FindFirstChild("RoleHighlight") or Instance.new("Highlight", p.Character)
-            highlight.Name = "RoleHighlight"
-            
-            local t = p.Team and p.Team.Name or ""
-            local isW = t:find("Worm") and ShowWorm
-            local isG = t:find("Guard") and ShowGuard
-            local isS = t:find("Special") and ShowSF
+    -- Universal ESP
+    if ESPEnabled then
+        local AllEntities = game.Workspace:GetChildren()
+        for _, p in pairs(game.Players:GetPlayers()) do if p.Character then table.insert(AllEntities, p.Character) end end
 
-            if ESPEnabled and (isW or isG or isS) then
-                highlight.Enabled = true
-                highlight.FillColor = isW and Colors.Worm or isG and Colors.Guard or Colors.SF
-            else
-                highlight.Enabled = false
+        for _, ent in pairs(AllEntities) do
+            if ent:IsA("Model") and ent:FindFirstChild("Humanoid") and ent ~= game.Players.LocalPlayer.Character then
+                local Highlight = ent:FindFirstChild("EliteESP") or Instance.new("Highlight", ent)
+                Highlight.Name = "EliteESP"
+                
+                local name = ent.Name:lower()
+                local isW = name:find("worm") and ShowWorm
+                local isG = name:find("guard") and ShowGuard
+                local isS = (name:find("special") or name:find("force")) and ShowSF
+
+                if isW or isG or isS then
+                    Highlight.Enabled = true
+                    Highlight.FillColor = isW and Color3.fromRGB(255,0,0) or isG and Color3.fromRGB(0,120,255) or Color3.fromRGB(255,200,0)
+                else
+                    Highlight.Enabled = false
+                end
             end
         end
     end
