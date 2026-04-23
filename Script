@@ -1,53 +1,56 @@
 --[[
-    BE WORM OR GUARD | ULTIMATE TARGETING HUB
-    Fixed: Team Dropdown, Centered FOV, Distance Slider, and Color Picker
+    BE WORM OR GUARD | COMPLETE ELITE HUB (FINAL FIX)
+    Divided into: UI Initialization, Target Logic, and Render Loop
 ]]
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- // 1. GLOBAL SETTINGS
+-- // 1. CONFIGURATION & STATE
 local Window = Rayfield:CreateWindow({
-   Name = "Zen Hub| BE WORM OR GUARD",
-   LoadingTitle = "Configuring Modules...",
-   ConfigurationSaving = { Enabled = true, FolderName = "BWOG_Final_v2" }
+   Name = "ZEN HUN | BE WORM OR GUARD",
+   LoadingTitle = "Initializing Final Scripts...",
+   ConfigurationSaving = { Enabled = true, FolderName = "BWOG_Final_Script" }
 })
 
--- State Variables
-local AimbotEnabled, FOVVisible = false, true
-local MaxDistance, FOVRadius = 300, 100
-local AimPart = "Head"
-local FOVColor = Color3.fromRGB(255, 255, 255)
-local TargetTeams = {"Worm", "Guard", "Special Force"} -- Default targets
+local States = {
+    Aimbot = false,
+    ESP = false,
+    TargetBots = true,
+    FOVVisible = true,
+    FOVRadius = 100,
+    MaxDist = 500,
+    FOVColor = Color3.fromRGB(255, 255, 255),
+    TargetTeams = {"All"}
+}
 
 -- // 2. UI TABS
 local CombatTab = Window:CreateTab("Combat", 4483362458)
+local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 
--- // 3. COMBAT CONFIGURATION
+-- // 3. COMBAT TAB: AIMBOT & FOV
 CombatTab:CreateSection("Aimbot Master")
 
 CombatTab:CreateToggle({
    Name = "Enable Aimbot",
    CurrentValue = false,
-   Callback = function(Value) AimbotEnabled = Value end,
+   Callback = function(V) States.Aimbot = V end,
 })
 
 CombatTab:CreateDropdown({
-   Name = "Target Teams",
+   Name = "Filter Targeting",
    Options = {"Worm", "Guard", "Special Force", "All"},
    CurrentValue = {"All"},
-   MultiSelection = true, -- Allows you to pick multiple teams to aim at
-   Callback = function(Options)
-      TargetTeams = Options
-   end,
+   MultiSelection = true,
+   Callback = function(V) States.TargetTeams = V end,
 })
 
 CombatTab:CreateSlider({
-   Name = "Aimbot Activation Range",
-   Range = {10, 2000},
-   Increment = 10,
-   CurrentValue = 300,
+   Name = "Activation Distance",
+   Range = {50, 2000},
+   Increment = 50,
+   CurrentValue = 500,
    Suffix = " Studs",
-   Callback = function(Value) MaxDistance = Value end,
+   Callback = function(V) States.MaxDist = V end,
 })
 
 CombatTab:CreateSection("FOV Customization")
@@ -55,96 +58,128 @@ CombatTab:CreateSection("FOV Customization")
 CombatTab:CreateToggle({
    Name = "Show FOV Circle",
    CurrentValue = true,
-   Callback = function(Value) FOVVisible = Value end,
+   Callback = function(V) States.FOVVisible = V end,
 })
 
 CombatTab:CreateSlider({
-   Name = "FOV Radius",
+   Name = "FOV Size",
    Range = {30, 600},
    Increment = 5,
    CurrentValue = 100,
-   Callback = function(Value) FOVRadius = Value end,
+   Callback = function(V) States.FOVRadius = V end,
 })
 
 CombatTab:CreateColorPicker({
-    Name = "FOV Circle Color",
-    TargetColor = FOVColor,
-    Callback = function(Color) FOVColor = Color end,
+    Name = "FOV Color",
+    TargetColor = States.FOVColor,
+    Callback = function(V) States.FOVColor = V end,
 })
 
--- // 4. THE TARGETING ENGINE
+-- // 4. VISUALS TAB: ESP
+VisualsTab:CreateSection("Visual Enhancements")
 
-local Circle = Drawing.new("Circle")
-Circle.Thickness = 2
-Circle.NumSides = 64
-Circle.Transparency = 1
-Circle.Filled = false
+VisualsTab:CreateToggle({
+   Name = "Master ESP",
+   CurrentValue = false,
+   Callback = function(V) States.ESP = V end,
+})
 
-local function IsTargetValid(model)
-    local name = model.Name:lower()
-    local isAll = false
-    for _, t in pairs(TargetTeams) do if t == "All" then isAll = true break end end
+-- // 5. THE ENGINES (THE "MISSING" SCRIPTS)
+
+-- FOV Drawing Setup
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 64
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+
+-- Target Validation Logic
+local function IsValid(obj)
+    if not obj:FindFirstChild("Humanoid") or obj.Humanoid.Health <= 0 then return false end
+    local name = obj.Name:lower()
     
-    if isAll then return true end
+    local targetingAll = false
+    for _, t in pairs(States.TargetTeams) do if t == "All" then targetingAll = true break end end
+    if targetingAll then return true end
     
-    for _, team in pairs(TargetTeams) do
-        if name:find(team:lower()) then
-            return true
-        end
+    for _, team in pairs(States.TargetTeams) do
+        if name:find(team:lower()) then return true end
     end
     return false
 end
 
-local function GetClosestTarget()
-    local Target = nil
-    local ShortestDistance = math.huge
-    local Center = game.Workspace.CurrentCamera.ViewportSize / 2
+-- Get Closest Target to Center
+local function GetTarget()
+    local target = nil
+    local dist = math.huge
+    local center = game.Workspace.CurrentCamera.ViewportSize / 2
 
-    -- Scan both Players and Workspace Bots
-    local Entities = {}
+    local list = {}
     for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= game.Players.LocalPlayer and p.Character then table.insert(Entities, p.Character) end
+        if p ~= game.Players.LocalPlayer and p.Character then table.insert(list, p.Character) end
     end
-    for _, obj in pairs(game.Workspace:GetChildren()) do
-        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and not game.Players:GetPlayerFromCharacter(obj) then
-            table.insert(Entities, obj)
+    for _, o in pairs(game.Workspace:GetChildren()) do
+        if o:IsA("Model") and o:FindFirstChild("Humanoid") and not game.Players:GetPlayerFromCharacter(o) then
+            table.insert(list, o)
         end
     end
 
-    for _, char in pairs(Entities) do
-        if IsTargetValid(char) then
-            local part = char:FindFirstChild(AimPart)
-            if part then
-                local Pos, OnScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(part.Position)
-                if OnScreen then
-                    local ScreenDist = (Vector2.new(Pos.X, Pos.Y) - Center).Magnitude
-                    local WorldDist = (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - part.Position).Magnitude
+    for _, char in pairs(list) do
+        if IsValid(char) then
+            local head = char:FindFirstChild("Head")
+            if head then
+                local pos, onScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    local worldDist = (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - head.Position).Magnitude
                     
-                    if ScreenDist < FOVRadius and WorldDist < MaxDistance then
-                        if ScreenDist < ShortestDistance then
-                            ShortestDistance = ScreenDist
-                            Target = part
+                    if screenDist <= States.FOVRadius and worldDist <= States.MaxDist then
+                        if screenDist < dist then
+                            dist = screenDist
+                            target = head
                         end
                     end
                 end
             end
         end
     end
-    return Target
+    return target
 end
 
--- // 5. RUNTIME LOOP
+-- // 6. MAIN RENDER LOOP
 game:GetService("RunService").RenderStepped:Connect(function()
-    local Center = game.Workspace.CurrentCamera.ViewportSize / 2
-    Circle.Visible = FOVVisible
-    Circle.Radius = FOVRadius
-    Circle.Position = Center
-    Circle.Color = FOVColor
+    -- Circle Update
+    FOVCircle.Visible = States.FOVVisible
+    FOVCircle.Radius = States.FOVRadius
+    FOVCircle.Color = States.FOVColor
+    FOVCircle.Position = game.Workspace.CurrentCamera.ViewportSize / 2
 
-    if AimbotEnabled then
-        local Target = GetClosestTarget()
-        if Target then
-            game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, Target.Position)
+    -- Aimbot Execution
+    if States.Aimbot then
+        local lock = GetTarget()
+        if lock then
+            game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, lock.Position)
+        end
+    end
+
+    -- ESP Execution
+    if States.ESP then
+        for _, o in pairs(game.Workspace:GetChildren()) do
+            if o:IsA("Model") and o:FindFirstChild("Humanoid") and o ~= game.Players.LocalPlayer.Character then
+                if IsValid(o) then
+                    local h = o:FindFirstChild("EliteESP") or Instance.new("Highlight", o)
+                    h.Name = "EliteESP"
+                    h.Enabled = true
+                    
+                    -- Color logic based on name
+                    local n = o.Name:lower()
+                    h.FillColor = n:find("worm") and Color3.fromRGB(255,0,0) or n:find("guard") and Color3.fromRGB(0,150,255) or Color3.fromRGB(255,200,0)
+                elseif o:FindFirstChild("EliteESP") then
+                    o.EliteESP.Enabled = false
+                end
+            end
         end
     end
 end)
+
+Rayfield:Notify({Title = "BWOG HUB", Content = "Script fully loaded and fixed!", Duration = 5})
